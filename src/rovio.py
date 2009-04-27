@@ -69,7 +69,7 @@ Authors:
   - Jon Bona (University at Buffalo) (mailto:jpbona@buffalo.edu)
   - Mike Prentice (University at Buffalo) (mailto:mjp44@buffalo.edu)
 
-PyRovio is developed by the University at Buffalo and distributed under the UB
+PyRovio is developed at the University at Buffalo and distributed under the UB
 Public License (UBPL) version 1.0 (see license.txt).
 
 """
@@ -277,8 +277,8 @@ class Rovio:
       - password: HTTP Auth password (default None)
 
     Commands:
-      - GetReport: returns a status report on the Rovio
-      - StartRecording: start recording a path
+      - manual_drive: master command for wheel and camera movement
+      - get_report: returns a status report on the Rovio
 
     Movement commands:
     
@@ -287,31 +287,22 @@ class Rovio:
     optional speed parameter that defaults to the default speed of this Rovio
     object.
     
-      - Stop
-      - Forward
-      - Backward
-      - Left (straight left)
-      - Right (straight right)
-      - RotateLeft (by speed)
-      - RotateRight (by speed)
-      - DiagForwardLeft
-      - DiagForwardRight
-      - DiagBackLeft
-      - DiagBackRight
-      - HeadUp (camera)
-      - HeadDown (camera)
-      - HeadMiddle (camera)
-      - RotateLeft20 (20 degrees)
-      - RotateRight20 (20 degrees)
-
-    Helper commands:
-    
-    These commands should not be called directly, but are available if
-    necessary.
-    
-      - ManualDrive: master command for wheel and camera movement
-      - getRequestResponse: execute the Rovio command and return raw response
-      - parseResponse
+      - stop
+      - forward
+      - backward
+      - left (straight left)
+      - right (straight right)
+      - rotate_left (by speed and angle)
+      - rotate_right (by speed and angle)
+      - diag_forward_left
+      - diag_forward_right
+      - diag_back_left
+      - diag_back_right
+      - head_up (camera)
+      - head_down (camera)
+      - head_middle (camera)
+      - rotate_left_20 (20 degrees) TODO remove
+      - rotate_right_20 (20 degrees) TODO remove
 
     Documentation taken from the API Specification for Rovio, version 1.2,
     October 8, 2008, from WowWee Group Limited.
@@ -407,71 +398,71 @@ class Rovio:
                                                  self.username, self.password,
                                                  self.port))
 
-    def Stop(self):
+    def stop(self):
         """Currently does nothing."""
-        return self.ManualDrive(0)
+        return self.manual_drive(0)
 
-    def Forward(self, speed=None):
+    def forward(self, speed=None):
         """Move Rovio forward."""
-        return self.ManualDrive(1, speed)
+        return self.manual_drive(1, speed)
 
-    def Backward(self, speed=None):
+    def backward(self, speed=None):
         """Move Rovio backward."""
-        return self.ManualDrive(2, speed)
+        return self.manual_drive(2, speed)
 
-    def Left(self, speed=None):
+    def left(self, speed=None):
         """Move Rovio straight left."""
-        return self.ManualDrive(3, speed)
+        return self.manual_drive(3, speed)
 
-    def Right(self, speed=None):
+    def right(self, speed=None):
         """Move Rovio straight right."""
-        return self.ManualDrive(4, speed)
+        return self.manual_drive(4, speed)
 
-    def RotateLeft(self, speed=None):
+    def rotate_left(self, speed=None):
         """Rotate Rovio left by speed."""
-        return self.ManualDrive(5, speed)
+        return self.manual_drive(5, speed)
 
-    def RotateRight(self, speed=None):
+    def rotate_right(self, speed=None):
         """Rotate Rovio right by speed."""
-        return self.ManualDrive(6, speed)
+        return self.manual_drive(6, speed)
 
-    def DiagForwardLeft(self, speed=None):
+    def diag_forward_left(self, speed=None):
         """Move Rovio forward and left."""
-        return self.ManualDrive(7, speed)
+        return self.manual_drive(7, speed)
 
-    def DiagForwardRight(self, speed=None):
+    def diag_forward_right(self, speed=None):
         """Move Rovio forward and right."""
-        return self.ManualDrive(8, speed)
+        return self.manual_drive(8, speed)
 
-    def DiagBackLeft(self, speed=None):
+    def diag_back_left(self, speed=None):
         """Move Rovio backward and left."""
-        return self.ManualDrive(9, speed)
+        return self.manual_drive(9, speed)
 
-    def DiagBackRight(self, speed=None):
+    def diag_back_right(self, speed=None):
         """Move Rovio backward and right."""
-        return self.ManualDrive(10, speed)
+        return self.manual_drive(10, speed)
 
-    def RotateLeft20(self):
+    def rotate_left_20(self):
         """Rotate Rovio left 20 degrees."""
-        return self.ManualDrive(17)
+        return self.manual_drive(17)
 
-    def RotateRight20(self):
+    def rotate_right_20(self):
         """Rotate Rovio right 20 degrees."""
-        return self.ManualDrive(18)
+        return self.manual_drive(18)
 
-    def HeadUp(self):
+    def head_up(self):
         """Move camera head looking up."""
-        return self.ManualDrive(11)
+        return self.manual_drive(11)
 
-    def HeadDown(self):
+    def head_down(self):
         """Move camera head down, looking ahead."""
-        return self.ManualDrive(12)
+        return self.manual_drive(12)
 
-    def HeadMiddle(self):
+    def head_middle(self):
         """Move camera head to middle position, looking ahead."""
-        return self.ManualDrive(13)
+        return self.manual_drive(13)
 
-    def GetReport(self):
+    def get_report(self):
         """
         Get Rovio's current status.
 
@@ -554,8 +545,8 @@ class Rovio:
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (1,)
-        r = self.getRequestResponse(page)
-        d = self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        d = self._parseResponse(r)
         # TODO: flags?
         if d['responses'] == SUCCESS:
             d['raw_resolution'] = d['resolution']
@@ -640,7 +631,7 @@ class Rovio:
     def GetPathList(self):
         """Return a list of paths stored in the Rovio."""
         page = 'rev.cgi?Cmd=nav&action=%d' % (6,)
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
 
     def PlayPathForward(self, path_name):
         """
@@ -691,8 +682,8 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&name=%s&newname=%s' %
                 (11, old_path_name, new_path_name))
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)['responses']
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)['responses']
 
     def GoHome(self):
         """Drive to home location in front of charging station."""
@@ -720,8 +711,8 @@ class Rovio:
     def GetTuningParameters(self):
         """Return home, docking, and driving parameters."""
         page = 'rev.cgi?Cmd=nav&action=%d' % (16,)
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)
 
     def ResetNavStateMachine(self):
         """Stops whatever it was doing and resets to idle state."""
@@ -771,8 +762,8 @@ class Rovio:
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (20,)
-        r = self.getRequestResponse(page)
-        d = self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        d = self._parseResponse(r)
         return d['responses']
 
 #     def GetMCUReport(self):
@@ -805,8 +796,8 @@ class Rovio:
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (22,)
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)
 
     def SaveParameter(self, index, value):
         """
@@ -822,8 +813,8 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d&value=%d' %
                 (23, index, value))
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)
 
     def ReadParameter(self, index):
         """
@@ -837,8 +828,8 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d' % (24,
                                                         index))
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)
 
     def GetLibNSVersion(self):
         """Return string version of libNS and NS sensor."""
@@ -854,8 +845,8 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&email=%d' % (26,
                                                         email))
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)
 
     def ResetHomeLocation(self):
         """Clear home location in flash memory."""
@@ -882,9 +873,9 @@ class Rovio:
 
         """
         if imgID is None:
-            return self.getRequestResponse('Jpeg/CamImg.jpg')
+            return self._getRequestResponse('Jpeg/CamImg.jpg')
         else:
-            return self.getRequestResponse('Jpeg/CamImg%d.jpg' % imgID)
+            return self._getRequestResponse('Jpeg/CamImg%d.jpg' % imgID)
 
     def StreamVideo(self):
         """Streaming video not yet supported."""
@@ -910,7 +901,7 @@ class Rovio:
         else:
             page = ('ChangeResolution.cgi?ResType=%d&RedirectURL=%s' %
                     (ResType, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def ChangeCompressRatio(self, Ratio=1, RedirectURL=None):
         """
@@ -928,7 +919,7 @@ class Rovio:
         else:
             page = ('ChangeCompressRatio.cgi?Ratio=%d&RedirectURL=%s' %
                     (Ratio, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def ChangeFramerate(self, Framerate, RedirectURL=None):
         """
@@ -946,7 +937,7 @@ class Rovio:
         else:
             page = ('ChangeFramerate.cgi?Framerate=%d&RedirectURL=%s' %
                     (Framerate, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def ChangeFramerate(self, Framerate=30, RedirectURL=None):
         """
@@ -964,7 +955,7 @@ class Rovio:
         else:
             page = ('ChangeFramerate.cgi?Framerate=%d&RedirectURL=%s' %
                     (Framerate, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def ChangeBrightness(self, Brightness=6, RedirectURL=None):
         """
@@ -982,7 +973,7 @@ class Rovio:
         else:
             page = ('ChangeBrightness.cgi?Brightness=%d&RedirectURL=%s' %
                     (Brightness, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def ChangeSpeakerVolume(self, SpeakerVolume=15, RedirectURL=None):
         """
@@ -1001,7 +992,7 @@ class Rovio:
         else:
             page = ('ChangeSpeakerVolume.cgi?SpeakerVolume=%d&RedirectURL=%s' %
                     (SpeakerVolume, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def ChangeMicVolume(self, MicVolume=15, RedirectURL=None):
         """
@@ -1019,7 +1010,7 @@ class Rovio:
         else:
             page = ('ChangeMicVolume.cgi?MicVolume=%d&RedirectURL=%s' %
                     (MicVolume, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
     def SetCamera(self, Frequency=0, RedirectURL=None):
         """
@@ -1037,11 +1028,11 @@ class Rovio:
         else:
             page = ('SetCamera.cgi?Frequency=%d&RedirectURL=%s' %
                     (Frequency, RedirectURL))
-        return self.getRequestResponse(page)
+        return self._getRequestResponse(page)
         
-    def ManualDrive(self, command, speed=None):
+    def manual_drive(self, command, speed=None):
         """
-        Send a ManualDrive command to the Rovio.
+        Send a manual_drive command to the Rovio.
 
         In general, this command should not be called directly.
 
@@ -1072,10 +1063,10 @@ class Rovio:
             speed = self.speed
         page = ('rev.cgi?Cmd=nav&action=%d&drive=%d&speed=%d' %
                 (18, command, speed))
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)['responses']
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)['responses']
 
-    def getRequestResponse(self, page):
+    def _getRequestResponse(self, page):
         """
         Send a command to the Rovio and return its response.
 
@@ -1096,7 +1087,7 @@ class Rovio:
         data = f.read()
         return data;
 
-    def parseResponse(self, response):
+    def _parseResponse(self, response):
         """
         Parse the response of some Rovio CGI commands.
 
@@ -1129,7 +1120,7 @@ class Rovio:
         return reply
 
     def _compileURLs(self):
-        """Compile all URLs for use in getRequestResponse."""
+        """Compile all URLs for use in _getRequestResponse."""
         if self._username is not None and self._password is not None:
             self._base64string = base64.encodestring('%s:%s' %
                                                      (self._username,
@@ -1140,13 +1131,13 @@ class Rovio:
                                           self._port)
 
     def _simpleRevCmd(self, commandID, name=None):
-        """Make simple rev.cgi calls (for path ops, not ManualDrive)"""
+        """Make simple rev.cgi calls (for path ops, not manual_drive)"""
         if name is None:
             page = 'rev.cgi?Cmd=nav&action=%d' % (commandID,)
         else:
             page = 'rev.cgi?Cmd=nav&action=%d&name=%s' % (commandID, name)
-        r = self.getRequestResponse(page)
-        return self.parseResponse(r)['responses']
+        r = self._getRequestResponse(page)
+        return self._parseResponse(r)['responses']
 
 #######################
 # TESTING AND SCRIPTS #
