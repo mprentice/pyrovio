@@ -128,12 +128,90 @@ PARAMETER_OUTOFRANGE             = 22
 NO_PARAMETER                     = 23
 """one or more CGI parameters are missing"""
 
+response_codes = {
+    SUCCESS : ['SUCCESS', 'CGI command successful'],
+    FAILURE : ['FAILURE', 'CGI command general failure'],
+    ROBOT_BUSY : ['ROBOT_BUSY', 'robot is executing autonomous function'],
+    FEATURE_NOT_IMPLEMENTED : ['FEATURE_NOT_IMPLEMENTED',
+                               'CGI command not implemented'],
+    UNKNOWN_CGI_ACTION : ['UNKNOWN_CGI_ACTION',
+                          'CGI nav command: unknown action requested'],
+    NO_NS_SIGNAL : ['NO_NS_SIGNAL', 'no navigation signal available'],
+    NO_EMPTY_PATH_AVAILABLE : ['NO_EMPTY_PATH_AVAILABLE',
+                               'path memory is full'],
+    FAILED_TO_READ_PATH : ['FAILED_TO_READ_PATH',
+                           'failed to read Flash memory'],
+    PATH_BASEADDRESS_NOT_INITIALIZED : ['PATH_BASEADDRESS_NOT_INITIALIZED',
+                                        'Flash error'],
+    PATH_NOT_FOUND : ['PATH_NOT_FOUND', 'no path with such name'],
+    PATH_NAME_NOT_SPECIFIED : ['PATH_NAME_NOT_SPECIFIED',
+                               'path name parameter is missing'],
+    NOT_RECORDING_PATH : ['NOT_RECORDING_PATH',
+                          'save path command received while not in recording '
+                          'mode'],
+    FLASH_NOT_INITIALIZED : ['FLASH_NOT_INITIALIZED',
+                             'Flash subsystem failure'],
+    FAILED_TO_DELETE_PATH : ['FAILED_TO_DELETE_PATH',
+                             'Flash operation failed'],
+    FAILED_TO_READ_FROM_FLASH : ['FAILED_TO_READ_FROM_FLASH',
+                                 'Flash operation failed'],
+    FAILED_TO_WRITE_TO_FLASH : ['FAILED_TO_WRITE_TO_FLASH',
+                                'Flash operation failed'],
+    FLASH_NOT_READY : ['FLASH_NOT_READY', 'Flash failed'],
+    NO_MEMORY_AVAILABLE : ['NO_MEMORY_AVAILABLE', 'N/A'],
+    NO_MCU_PORT_AVAILABLE : ['NO_MCU_PORT_AVAILABLE', 'N/A'],
+    NO_NS_PORT_AVAILABLE : ['NO_NS_PORT_AVAILABLE', 'N/A'],
+    NS_UART_READ_ERROR : ['NS_UART_READ_ERROR', 'N/A'],
+    PARAMETER_OUTOFRANGE : ['PARAMETER_OUTOFRANGE',
+                            'one or more CGI parameters are out of expected '
+                            'range'],
+    NO_PARAMETER : ['NO_PARAMETER', 'one or more CGI parameters are missing'],
+    }
+
 ###########
 # CLASSES #
 ###########
 
 class RovioError(Exception):
     """Base class for errors in the Rovio package."""
+
+class ConnectError(RovioError):
+    """
+    Exception raised for error connecting to the Rovio.
+
+    Attributes:
+      - rovio: Rovio object
+      - message: explanation of the error
+
+    """
+
+    def __init__(self, rovio):
+        self.rovio = rovio
+        self.message = ('Error connecting to %s (host: %s)' %
+                        (self.rovio.name, self.rovio.host))
+
+class ResponseError(RovioError):
+    """
+    Exception raised for a command response code error.
+
+    Raised when the response code is not SUCCESS.
+
+    Attributes:
+      - rovio: Rovio object
+      - code: command response code
+      - message: explanation of the error
+
+    """
+
+    def __init__(self, rovio, code):
+        self.rovio = rovio
+        self.code = code
+        self.message = ('\n'.join(['Response error from %s',
+                                   '    Command response code: %d %s',
+                                   '    %s']) %
+                        (self.code,
+                         response_codes[self.code][0],
+                         response_codes[self.code][1]))
 
 class Rovio:
     
