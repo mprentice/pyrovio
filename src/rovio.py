@@ -609,7 +609,7 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(START_RECORDING)
+        return self._simpleRevCmd(2)
 
     def AbortRecording(self):
         """
@@ -620,7 +620,7 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(ABORT_RECORDING)
+        return self._simpleRevCmd(3)
 
     def StopRecording(self, path_name='newpath'):
         """
@@ -635,7 +635,7 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(STOP_RECORDING, path_name)
+        return self._simpleRevCmd(4, path_name)
 
     def DeletePath(self, path_name):
         """
@@ -647,13 +647,13 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(DELETE_PATH, path_name)
+        return self._simpleRevCmd(5, path_name)
 
     ### TODO Continue testing here!
 
     def GetPathList(self):
         """Return a list of paths stored in the Rovio."""
-        page = 'rev.cgi?Cmd=nav&action=%d' % (GET_PATH_LIST,)
+        page = 'rev.cgi?Cmd=nav&action=%d' % (6,)
         return self.getRequestResponse(page)
 
     def PlayPathForward(self, path_name):
@@ -668,7 +668,7 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(PLAY_PATH_FORWARD, path_name)
+        return self._simpleRevCmd(7, path_name)
         
     def PlayPathBackward(self, path_name):
         """
@@ -682,15 +682,15 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(PLAY_PATH_BACKWARD, path_name)
+        return self._simpleRevCmd(8, path_name)
 
     def StopPlaying(self):
         """Stop playing a path."""
-        return self._simpleRevCmd(STOP_PLAYING)
+        return self._simpleRevCmd(9)
 
     def PausePlaying(self):
         """Pause the robot and wait for a new pause or stop command."""
-        return self._simpleRevCmd(PAUSE_PLAYING)
+        return self._simpleRevCmd(10)
 
     def RenamePath(self, old_path_name, new_path_name):
         """
@@ -704,21 +704,21 @@ class Rovio:
 
         """
         page = ('rev.cgi?Cmd=nav&action=%d&name=%s&newname=%s' %
-                (RENAME_PATH, old_path_name, new_path_name))
+                (11, old_path_name, new_path_name))
         r = self.getRequestResponse(page)
         return self._parseResponse(r)['responses']
 
     def GoHome(self):
         """Drive to home location in front of charging station."""
-        return self._simpleRevCmd(GO_HOME)
+        return self._simpleRevCmd(12)
 
     def GoHomeAndDock(self):
         """Drive to home location and dock at charging station."""
-        return self._simpleRevCmd(GO_HOME_AND_DOCK)
+        return self._simpleRevCmd(13)
 
     def UpdateHomePosition(self):
         """Define current position as home location."""
-        return self._simpleRevCmd(UPDATE_HOME_POSITION)
+        return self._simpleRevCmd(14)
 
     def SetTuningParameters(self):
         """
@@ -729,17 +729,17 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(SET_TUNING_PARAMETERS)
+        return self._simpleRevCmd(15)
 
     def GetTuningParameters(self):
         """Return home, docking, and driving parameters."""
-        page = 'rev.cgi?Cmd=nav&action=%d' % (GET_TUNING_PARAMETERS,)
+        page = 'rev.cgi?Cmd=nav&action=%d' % (16,)
         r = self.getRequestResponse(page)
         return self._parseResponse(r)
 
     def ResetNavStateMachine(self):
         """Stops whatever it was doing and resets to idle state."""
-        return self._simpleRevCmd(RESET_NAV_STATE_MACHINE)
+        return self._simpleRevCmd(17)
 
     def GetMCUReport(self):
         """
@@ -784,12 +784,12 @@ class Rovio:
                       bit 6,7: undefined, not used
 
         """
-        page = 'rev.cgi?Cmd=nav&action=%d' % (GET_MCU_REPORT,)
+        page = 'rev.cgi?Cmd=nav&action=%d' % (20,)
         return self.getRequestResponse(page)
 
     def ClearAllPaths(self):
         """Delete all paths in flash memory."""
-        return self._simpleRevCmd(CLEAR_ALL_PATHS)
+        return self._simpleRevCmd(21)
 
     def GetStatus(self):
         """
@@ -804,7 +804,7 @@ class Rovio:
                   4 (recording path)}
 
         """
-        page = 'rev.cgi?Cmd=nav&action=%d' % (GET_STATUS,)
+        page = 'rev.cgi?Cmd=nav&action=%d' % (22,)
         r = self.getRequestResponse(page)
         return self._parseResponse(r)
 
@@ -821,7 +821,7 @@ class Rovio:
 
         """
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d&value=%d' %
-                (SAVE_PARAMETER, index, value))
+                (23, index, value))
         r = self.getRequestResponse(page)
         return self._parseResponse(r)
 
@@ -835,14 +835,14 @@ class Rovio:
         Return response code.
 
         """
-        page = ('rev.cgi?Cmd=nav&action=%d&index=%d' % (READ_PARAMETER,
+        page = ('rev.cgi?Cmd=nav&action=%d&index=%d' % (24,
                                                         index))
         r = self.getRequestResponse(page)
         return self._parseResponse(r)
 
     def GetLibNSVersion(self):
         """Return string version of libNS and NS sensor."""
-        return self._simpleRevCmd(GET_LIBNS_VERSION)
+        return self._simpleRevCmd(25)
 
     def EmailImage(self, email):
         """
@@ -852,14 +852,14 @@ class Rovio:
           - email: email address
 
         """
-        page = ('rev.cgi?Cmd=nav&action=%d&email=%d' % (EMAIL_IMAGE,
+        page = ('rev.cgi?Cmd=nav&action=%d&email=%d' % (26,
                                                         email))
         r = self.getRequestResponse(page)
         return self._parseResponse(r)
 
     def ResetHomeLocation(self):
         """Clear home location in flash memory."""
-        return self._simpleRevCmd(RESET_HOME_LOCATION)
+        return self._simpleRevCmd(27)
 
     def GetData(self):
         """
