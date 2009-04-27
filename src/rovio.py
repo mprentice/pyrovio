@@ -11,6 +11,9 @@ Classes:
 Exceptions:
     RovioError: base class for Rovio-related exceptions
 
+Module Attributes:
+  - rovios: a map of Rovio names to Rovio objects
+
 Module Constants:
     __version__: The version of the PyRovio interface module as a string
     API_VERSION: The version of the Rovio API as a string
@@ -20,7 +23,8 @@ Module Constants:
     COPYRIGHT
     LICENSE
     USER_AGENT: For use with HTTP requests
-
+    response_codes: map of response codes to [name, docstring]
+    
     Response Code Commands Table
 
     These are returned by many Rovio commands.
@@ -63,9 +67,9 @@ Public License (UBPL) version 1.0 (see license.txt).
 
 """
 
-import base64, urllib2
-from threading import Timer
-import time
+import base64
+import urllib2
+import logging
 
 ###############
 # MODULE INFO #
@@ -168,6 +172,13 @@ response_codes = {
     NO_PARAMETER : ['NO_PARAMETER', 'one or more CGI parameters are missing'],
     }
 
+#####################
+# MODULE ATTRIBUTES #
+#####################
+
+rovios = dict()
+"""Map of Rovio names to interface objects"""
+
 ###########
 # CLASSES #
 ###########
@@ -193,8 +204,6 @@ class ConnectError(RovioError):
 class ResponseError(RovioError):
     """
     Exception raised for a command response code error.
-
-    Raised when the response code is not SUCCESS.
 
     Attributes:
       - rovio: Rovio object
@@ -277,8 +286,9 @@ class Rovio:
     These commands should not be called directly, but are available if
     necessary.
     
-      - getRequestResponse: execute the Rovio command and return raw response
       - ManualDrive: master command for wheel and camera movement
+      - getRequestResponse: execute the Rovio command and return raw response
+      - parseResponse
 
     Documentation taken from the API Specification for Rovio, version 1.2,
     October 8, 2008, from WowWee Group Limited.
@@ -364,63 +374,7 @@ class Rovio:
         self._protocol = 'http'
         self._speed = 1
         self._compileURLs()
-
-    def getRequestResponse(self, page):
-        """
-        Send a command to the Rovio and return its response.
-
-        In general, this command should not be called directly.
-
-        Parameters:
-          - page: the Rovio API command to request
-
-        Return the raw response.
-
-        """
-        url = self._base_url + page
-        req = urllib2.Request(url)
-        req.add_header('User-Agent', USER_AGENT)
-        if self._base64string is not None:
-            req.add_header("Authorization", "Basic %s" % self._base64string)
-        f = urllib2.urlopen(req)
-        data = f.read()
-        return data;
-
-    def ManualDrive(self, command, speed=None):
-        """
-        Send a ManualDrive command to the Rovio.
-
-        In general, this command should not be called directly.
-
-        Parameters:
-          - command: the movement command ID (integer)
-                     0   stop
-                     1   forward
-                     2   backward
-                     3   straight left
-                     4   straight right
-                     5   rotate left by speed
-                     6   rotate right by speed
-                     7   diagonal forward left
-                     8   diagonal forward right
-                     9   diagonal back left
-                     10  diagonal back right
-                     11  head up (camera)
-                     12  head down (camera)
-                     13  head middle (camera)
-                     17  rotate left 20 degrees
-                     18  rotate right 20 degrees
-          - speed: speed to move (default is self.speed)
-
-        Return the response code (0 for success).
-
-        """
-        if speed is None or speed < 1 or speed > 10:
-            speed = self.speed
-        page = ('rev.cgi?Cmd=nav&action=%d&drive=%d&speed=%d' %
-                (18, command, speed))
-        r = self.getRequestResponse(page)
-        return self._parseResponse(r)['responses']
+        rovios[self.name] = self
 
     def Stop(self):
         """Currently does nothing."""
@@ -475,22 +429,22 @@ class Rovio:
         return self.ManualDrive(18)
 
     def HeadUp(self):
-        """Camera head looking up."""
+        """Move camera head looking up."""
         return self.ManualDrive(11)
 
     def HeadDown(self):
-        """Camera head down, looking ahead."""
+        """Move camera head down, looking ahead."""
         return self.ManualDrive(12)
 
     def HeadMiddle(self):
-        """Camera head in middle position, looking ahead."""
+        """Move camera head to middle position, looking ahead."""
         return self.ManualDrive(13)
 
     def GetReport(self):
         """
         Get Rovio's current status.
 
-        Generates a report from libNS module that provides Rovio's current
+        Generate a report from libNS module that provides Rovio's current
         status.  Return a dictionary (keys are strings).
 
         Key                Description
@@ -570,29 +524,30 @@ class Rovio:
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (1,)
         r = self.getRequestResponse(page)
-        d = self._parseResponse(r)
+        d = self.parseResponse(r)
         # TODO: flags?
-        d['raw_resolution'] = d['resolution']
-        if d['raw_resolution'] == 0:
-            d['resolution'] = [176,144]
-        elif d['raw_resolution'] == 1:
-            d['resolution'] = [320,240]
-        elif d['raw_resolution'] == 2:
-            d['resolution'] = [352,240]
-        elif d['raw_resolution'] == 3:
-            d['resolution'] = [640,480]
-        d['raw_head_position'] = d['head_position']
-        if d['raw_head_position'] < 135:
-            d['head_position'] = 'high'
-        elif d['raw_head_position'] > 140:
-            d['head_position'] = 'low'
-        else:
-            d['head_position'] = 'mid'
-        d['raw_ac_freq'] = d['ac_freq']
-        if d['raw_ac_freq'] == 1:
-            d['ac_freq'] = 50
-        elif d['raw_ac_freq'] == 2:
-            d['ac_freq'] = 60
+        if d['responses'] == SUCCESS:
+            d['raw_resolution'] = d['resolution']
+            if d['raw_resolution'] == 0:
+                d['resolution'] = [176,144]
+            elif d['raw_resolution'] == 1:
+                d['resolution'] = [320,240]
+            elif d['raw_resolution'] == 2:
+                d['resolution'] = [352,240]
+            elif d['raw_resolution'] == 3:
+                d['resolution'] = [640,480]
+            d['raw_head_position'] = d['head_position']
+            if d['raw_head_position'] < 135:
+                d['head_position'] = 'high'
+            elif d['raw_head_position'] > 140:
+                d['head_position'] = 'low'
+            else:
+                d['head_position'] = 'mid'
+            d['raw_ac_freq'] = d['ac_freq']
+            if d['raw_ac_freq'] == 1:
+                d['ac_freq'] = 50
+            elif d['raw_ac_freq'] == 2:
+                d['ac_freq'] = 60
         return d
 
     def StartRecording(self):
@@ -706,7 +661,7 @@ class Rovio:
         page = ('rev.cgi?Cmd=nav&action=%d&name=%s&newname=%s' %
                 (11, old_path_name, new_path_name))
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)['responses']
+        return self.parseResponse(r)['responses']
 
     def GoHome(self):
         """Drive to home location in front of charging station."""
@@ -735,7 +690,7 @@ class Rovio:
         """Return home, docking, and driving parameters."""
         page = 'rev.cgi?Cmd=nav&action=%d' % (16,)
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)
+        return self.parseResponse(r)
 
     def ResetNavStateMachine(self):
         """Stops whatever it was doing and resets to idle state."""
@@ -743,7 +698,7 @@ class Rovio:
 
     def GetMCUReport(self):
         """
-        Returns MCU report (motor controller unit?).
+        Return MCU report (motor controller unit?).
 
         Including wheel encoders and IR obstacle avoidance.
 
@@ -785,7 +740,21 @@ class Rovio:
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (20,)
-        return self.getRequestResponse(page)
+        r = self.getRequestResponse(page)
+        d = self.parseResponse(r)
+        return d['responses']
+
+#     def GetMCUReport(self):
+#         """
+#         Return MCU report (motor control unit?).
+
+#         Convert the byte string returned by GetRawMCUReport into a list.
+
+#         """
+#         raw = self.GetRawMCUReport()
+#         mcu = list()
+#         n = mcu[0]
+#         return mcu
 
     def ClearAllPaths(self):
         """Delete all paths in flash memory."""
@@ -806,7 +775,7 @@ class Rovio:
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (22,)
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)
+        return self.parseResponse(r)
 
     def SaveParameter(self, index, value):
         """
@@ -823,7 +792,7 @@ class Rovio:
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d&value=%d' %
                 (23, index, value))
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)
+        return self.parseResponse(r)
 
     def ReadParameter(self, index):
         """
@@ -838,7 +807,7 @@ class Rovio:
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d' % (24,
                                                         index))
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)
+        return self.parseResponse(r)
 
     def GetLibNSVersion(self):
         """Return string version of libNS and NS sensor."""
@@ -855,7 +824,7 @@ class Rovio:
         page = ('rev.cgi?Cmd=nav&action=%d&email=%d' % (26,
                                                         email))
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)
+        return self.parseResponse(r)
 
     def ResetHomeLocation(self):
         """Clear home location in flash memory."""
@@ -1039,29 +1008,68 @@ class Rovio:
                     (Frequency, RedirectURL))
         return self.getRequestResponse(page)
         
-    def _compileURLs(self):
-        """Compile all URLs for use in getRequestResponse."""
-        if self._username is not None and self._password is not None:
-            self._base64string = base64.encodestring('%s:%s' %
-                                                     (self._username,
-                                                      self._password))[:-1]
-        else:
-            self._base64string = None
-        self._base_url = '%s://%s:%d/' % (self._protocol, self._host,
-                                          self._port)
+    def ManualDrive(self, command, speed=None):
+        """
+        Send a ManualDrive command to the Rovio.
 
-    def _simpleRevCmd(self, commandID, name=None):
-        """Make simple rev.cgi calls (for path ops, not ManualDrive)"""
-        if name is None:
-            page = 'rev.cgi?Cmd=nav&action=%d' % (commandID,)
-        else:
-            page = 'rev.cgi?Cmd=nav&action=%d&name=%s' % (commandID, name)
+        In general, this command should not be called directly.
+
+        Parameters:
+          - command: the movement command ID (integer)
+                     0   stop
+                     1   forward
+                     2   backward
+                     3   straight left
+                     4   straight right
+                     5   rotate left by speed
+                     6   rotate right by speed
+                     7   diagonal forward left
+                     8   diagonal forward right
+                     9   diagonal back left
+                     10  diagonal back right
+                     11  head up (camera)
+                     12  head down (camera)
+                     13  head middle (camera)
+                     17  rotate left 20 degrees
+                     18  rotate right 20 degrees
+          - speed: speed to move (default is self.speed)
+
+        Return the response code (0 for success).
+
+        """
+        if speed is None or speed < 1 or speed > 10:
+            speed = self.speed
+        page = ('rev.cgi?Cmd=nav&action=%d&drive=%d&speed=%d' %
+                (18, command, speed))
         r = self.getRequestResponse(page)
-        return self._parseResponse(r)['responses']
+        return self.parseResponse(r)['responses']
 
-    def _parseResponse(self, response):
+    def getRequestResponse(self, page):
+        """
+        Send a command to the Rovio and return its response.
+
+        In general, this command should not be called directly.
+
+        Parameters:
+          - page: the Rovio API command to request
+
+        Return the raw response.
+
+        """
+        url = self._base_url + page
+        req = urllib2.Request(url)
+        req.add_header('User-Agent', USER_AGENT)
+        if self._base64string is not None:
+            req.add_header("Authorization", "Basic %s" % self._base64string)
+        f = urllib2.urlopen(req)
+        data = f.read()
+        return data;
+
+    def parseResponse(self, response):
         """
         Parse the response of some Rovio CGI commands.
+
+        In general, this command should not be called directly.
 
         Responses are of the form (for example):
         'Cmd = nav\nresponses = 0\n|x=-5644|...'
@@ -1089,29 +1097,25 @@ class Rovio:
             reply[key] = val
         return reply
 
-#     def getMCUReportValue(self):
-#         # get the MCU report
-#         report = str(self.getMCUReport());
-#         # get the string that encodes (in hex) the status
-#         status = report.split('\n')[1].split(' ')[2];
-#         # return it
-#         return status;
+    def _compileURLs(self):
+        """Compile all URLs for use in getRequestResponse."""
+        if self._username is not None and self._password is not None:
+            self._base64string = base64.encodestring('%s:%s' %
+                                                     (self._username,
+                                                      self._password))[:-1]
+        else:
+            self._base64string = None
+        self._base_url = '%s://%s:%d/' % (self._protocol, self._host,
+                                          self._port)
 
-#     def getMCUReport(self):
-#         print "getting MCUReport";
-#         url = '%(prot)s://%(host)s/rev.cgi?Cmd=nav&action=20' % self.url_data
-#         print "Getting Report";
-#         return self.getRequestResponse(url);
-
-#     def obstacle(self):
-#         "Returns True if there's an obstacle, False otherwise"
-#         # get just the status string from the MCU report
-#         status = self.getMCUReportValue();
-#         # get the last character, convert it to an integer
-#         lastByte = int("0x" + status[len(status)-1], 16);
-#         # the obstacle indicator is on bit 2
-#         # take bitwise & with 00000100 (4 in base 10)
-#         return ((lastByte & 4) > 0);
+    def _simpleRevCmd(self, commandID, name=None):
+        """Make simple rev.cgi calls (for path ops, not ManualDrive)"""
+        if name is None:
+            page = 'rev.cgi?Cmd=nav&action=%d' % (commandID,)
+        else:
+            page = 'rev.cgi?Cmd=nav&action=%d&name=%s' % (commandID, name)
+        r = self.getRequestResponse(page)
+        return self.parseResponse(r)['responses']
 
 if __name__ == "__main__":
     pass
