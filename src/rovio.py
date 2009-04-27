@@ -6,24 +6,31 @@ wraps http calls to a Rovio and returns the appropriate responses.  It also
 provides some additional support methods for parsing the responses.
 
 Classes:
-    Rovio: Access to an instance of a Rovio mobile webcam
+  - Rovio: Access to an instance of a Rovio mobile webcam
 
 Exceptions:
-    RovioError: base class for Rovio-related exceptions
+  - RovioError: base class for Rovio-related exceptions
+
+Handlers:
+  - NullHandler: do-nothing handler for logging
 
 Module Attributes:
   - rovios: a map of Rovio names to Rovio objects
+  - rlog: logging.Logger object for logging
+
+Module Functions:
+  - getRovio: return the rovio object with the given name
 
 Module Constants:
-    __version__: The version of the PyRovio interface module as a string
-    API_VERSION: The version of the Rovio API as a string
-    API_DATE: Release date of the Rovio API
-    INFO: PyRovio version and API info as a string
-    AUTHORS: List of dicts of author names and emails
-    COPYRIGHT
-    LICENSE
-    USER_AGENT: For use with HTTP requests
-    response_codes: map of response codes to [name, docstring]
+  - __version__: The version of the PyRovio interface module as a string
+  - API_VERSION: The version of the Rovio API as a string
+  - API_DATE: Release date of the Rovio API
+  - INFO: PyRovio version and API info as a string
+  - AUTHORS: List of dicts of author names and emails
+  - COPYRIGHT
+  - LICENSE
+  - USER_AGENT: For use with HTTP requests
+  - response_codes: map of response codes to [name, docstring]
     
     Response Code Commands Table
 
@@ -178,10 +185,26 @@ response_codes = {
 
 rovios = dict()
 """Map of Rovio names to interface objects"""
+rlog = logging.getLogger('rovio')
+
+####################
+# MODULE FUNCTIONS #
+####################
+
+def getRovio(name):
+    """Return the Rovio object named by name."""
+    return rovios[name]
 
 ###########
 # CLASSES #
 ###########
+
+class NullHandler(logging.Handler):
+    """Do-nothing handler for logging."""
+    def emit(self, record):
+        pass
+# add null handler to avoid error messages
+rlog.addHandler(NullHandler())
 
 class RovioError(Exception):
     """Base class for errors in the Rovio package."""
@@ -375,6 +398,14 @@ class Rovio:
         self._speed = 1
         self._compileURLs()
         rovios[self.name] = self
+        rlog.info('\n'.join(['Rovio initialized: ',
+                             '    name: %s',
+                             '    host: %s',
+                             '    username: %s',
+                             '    password: %s',
+                             '    port: %d']) % (self.name, self.host,
+                                                 self.username, self.password,
+                                                 self.port))
 
     def Stop(self):
         """Currently does nothing."""
@@ -1116,6 +1147,10 @@ class Rovio:
             page = 'rev.cgi?Cmd=nav&action=%d&name=%s' % (commandID, name)
         r = self.getRequestResponse(page)
         return self.parseResponse(r)['responses']
+
+#######################
+# TESTING AND SCRIPTS #
+#######################
 
 if __name__ == "__main__":
     pass
