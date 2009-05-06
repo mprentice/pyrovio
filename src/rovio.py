@@ -77,6 +77,8 @@ Public License (UBPL) version 1.0 (see license.txt).
 import base64
 import urllib2
 import logging
+import threading
+import time
 
 ###############
 # MODULE INFO #
@@ -214,7 +216,7 @@ class ConnectError(RovioError):
     Exception raised for error connecting to the Rovio.
 
     Attributes:
-      - rovio: Rovio object
+      - rovio:   Rovio object
       - message: explanation of the error
 
     """
@@ -238,12 +240,47 @@ class ResponseError(RovioError):
     def __init__(self, rovio, code):
         self.rovio = rovio
         self.code = code
-        self.message = ('\n'.join(['Response error from %s',
-                                   '    Command response code: %d %s',
-                                   '    %s']) %
-                        (self.code,
+        self.message = ('Response error from %s: %d (%s)' %
+                        (self.rovio.name,
                          response_codes[self.code][0],
                          response_codes[self.code][1]))
+
+class ParamError(RovioError):
+    """
+    Exception raised when trying to set a parameter to an invalid value.
+
+    Attributes:
+      - rovio:   rovio object
+      - param:   parameter name
+      - message: explanation of the error
+
+    """
+
+    def __init__(self, rovio, param, value, message=None):
+        self.rovio = rovio
+        self.param = param
+        self.message = ('Parameter error from %s: Attempting to set param %s '
+                        'to %s (Details: %s)') % (self.rovio.name,
+                                                  self.param,
+                                                  self.message)
+
+class OutOfRangeError(ParamError):
+    """
+    Exception raised when trying to set a parameter out of range.
+
+    Attributes:
+      - rovio:  Rovio object
+      - param:  parameter name
+      - range_: [low, high]
+      - value:  attempted input value
+      
+    """
+
+    def __init__(self, rovio, param, range_, value):
+        super(OutOfRangeError, self).__init__(rovio, param, value,
+                                              'valid range is %s' % range)
+        self.range = range_
+        self.value = value
 
 class Rovio:
     
@@ -268,17 +305,53 @@ class Rovio:
     Rovio's webserver, so set parameters carefully.
 
     Properties:
-      - name:     name of this Rovio (read-only)
       - host:     hostname or IP address of the Rovio
-      - protocol: Protocol to use (read-only, default http)
+      - name:     name of this Rovio (read-only)
       - port:     HTTP port number (default 80)
+      - protocol: Protocol to use (read-only, default http)
       - speed:    Default Rovio speed (1 fastest, 10 slowest, default 1)
       - username: HTTP Auth name (default None)
       - password: HTTP Auth password (default None)
 
     Commands:
-      - manual_drive: master command for wheel and camera movement
-      - get_report: returns a status report on the Rovio
+      - abort_recording
+      - change_brightness
+      - change_compress_ratio
+      - change_framerate
+      - change_mic_volume
+      - change_resolution
+      - change_speaker_volume
+      - clear_all_paths
+      - delete_path
+      - email_image
+      - get_data
+      - get_host
+      - get_image
+      - get_libNS_version
+      - get_MCU_report
+      - get_path_list
+      - get_report:           return a status report on the Rovio
+      - get_status
+      - get_tuning_parameters
+      - go_home
+      - go_home_and_dock
+      - manual_drive:         master command for wheel and camera movement
+      - pause_playing
+      - play_path_backward
+      - play_path_forward
+      - read_all_parameters
+      - read_parameter
+      - rename_path
+      - reset_home_location
+      - reset_nav_state_machine
+      - save_parameter
+      - set_camera
+      - set_tuning_parameters
+      - start_recording
+      - stop_playing
+      - stop_recording
+      - stream_video
+      - update_home_position
 
     Movement commands:
     
@@ -294,15 +367,13 @@ class Rovio:
       - right (straight right)
       - rotate_left (by speed and angle)
       - rotate_right (by speed and angle)
-      - diag_forward_left
-      - diag_forward_right
-      - diag_back_left
-      - diag_back_right
+      - forward_left
+      - forward_right
+      - back_left
+      - back_right
       - head_up (camera)
       - head_down (camera)
       - head_middle (camera)
-      - rotate_left_20 (20 degrees) TODO remove
-      - rotate_right_20 (20 degrees) TODO remove
 
     Documentation taken from the API Specification for Rovio, version 1.2,
     October 8, 2008, from WowWee Group Limited.
@@ -313,24 +384,26 @@ class Rovio:
 
     # Data attributes (instance attributes)
     
-    def getProtocol(self): return self._protocol
-    protocol = property(getProtocol, doc="""Protocol to use (default http)""")
+    def get_protocol(self): return self._protocol
+    protocol = property(get_protocol, doc="""Protocol to use (default http)""")
     
-    def getPort(self): return self._port
-    def setPort(self, value):
-        # TODO: Throw exception on bad value
-        if (isinstance(value, int) and value > 0):
+    def get_port(self): return self._port
+    def set_port(self, value):
+        if 0 <= value <= 65535:
             self._port = value
-            self._compileURLs()
-    port = property(getPort, setPort,
+            self._compile_URLs()
+        else:
+            raise OutOfRangeError(self, 'port', [0, 65535], value)
+    port = property(get_port, set_port,
                     doc="""Rovio port (default 80)""")
 
-    def getSpeed(self): return self._speed
-    def setSpeed(self, value):
-        # TODO: Throw exception on bad value
-        if (value >= 1 and value <= 10):
+    def get_speed(self): return self._speed
+    def set_speed(self, value):
+        if 1 <= value <= 10:
             self._speed = value
-    speed = property(getSpeed, setSpeed,
+        else:
+            raise OutOfRangeError(self, 'speed', [1, 10], value)
+    speed = property(get_speed, set_speed,
                      doc="""
                      Rovio's default movement speed.
 
@@ -338,34 +411,39 @@ class Rovio:
                      
                      """)
 
-    def getUsername(self): return self._username
-    def setUsername(self, value):
-        # TODO: Throw exception on bad value
+    def get_username(self): return self._username
+    def set_username(self, value):
         if (isinstance(value, str) or value is None):
             self._username = value
-            self._compileURLs()
-    username = property(getUsername, setUsername,
+            self._compile_URLs()
+        else:
+            raise ParamError(self, 'username', value,
+                             'must be a string or None')
+    username = property(get_username, set_username,
                         doc="""HTTP Auth username or None""")
 
-    def getPassword(self): return self._password
-    def setPassword(self, value):
-        # TODO: Throw exception on bad value
+    def get_password(self): return self._password
+    def set_password(self, value):
         if (isinstance(value, str) or value is None):
             self._password = value
-            self._compileURLs()
-    password = property(getPassword, setPassword,
+            self._compile_URLs()
+        else:
+            raise ParamError(self, 'password', value,
+                             'must be a string or None')
+    password = property(get_password, set_password,
                         doc="""HTTP Auth password or None""")
     
-    def getName(self): return self._name
-    name = property(getName, doc="""Name of the Rovio the object represents""")
+    def get_name(self): return self._name
+    name = property(get_name, doc="""Name of the Rovio the object represents""")
 
-    def getHost(self): return self._host
-    def setHost(self, value):
-        # TODO: Throw exception on bad value
+    def get_host(self): return self._host
+    def set_host(self, value):
         if (isinstance(value, str)):
             self._host = value
-            self._compileURLs()
-    host = property(getHost, setHost,
+            self._compile_URLs()
+        else:
+            raise ParamError(self, 'host', value, 'must be a valid URL string')
+    host = property(get_host, set_host,
                     doc="""Hostname or IP address of the Rovio""")
     
     def __init__(self, name, host, username=None, password=None, port=80):
@@ -387,16 +465,8 @@ class Rovio:
         self._port = port
         self._protocol = 'http'
         self._speed = 1
-        self._compileURLs()
+        self._compile_URLs()
         rovios[self.name] = self
-        rlog.info('\n'.join(['Rovio initialized: ',
-                             '    name: %s',
-                             '    host: %s',
-                             '    username: %s',
-                             '    password: %s',
-                             '    port: %d']) % (self.name, self.host,
-                                                 self.username, self.password,
-                                                 self.port))
 
     def stop(self):
         """Currently does nothing."""
@@ -418,37 +488,57 @@ class Rovio:
         """Move Rovio straight right."""
         return self.manual_drive(4, speed)
 
-    def rotate_left(self, speed=None):
-        """Rotate Rovio left by speed."""
-        return self.manual_drive(5, speed)
+    def rotate_left(self, speed=None, angle=None):
+        """
+        Rotate Rovio left by speed.
 
-    def rotate_right(self, speed=None):
-        """Rotate Rovio right by speed."""
-        return self.manual_drive(6, speed)
+        The optional angle parameter turns the Rovio a certain distance.
+        Approximately: 3 is 45 degrees, 7 is 90 degrees, 11 is 135 degrees, and
+        15 is 180 degrees.
 
-    def diag_forward_left(self, speed=None):
+        Parameters:
+          - speed
+          - angle (optional)
+
+        """
+        if angle is None:
+            return self.manual_drive(5, speed)
+        else:
+            return self.manual_drive(17, speed, angle)
+
+    def rotate_right(self, speed=None, angle=None):
+        """
+        Rotate Rovio right by speed.
+
+        The optional angle parameter turns the Rovio a certain distance.
+        Approximately: 3 is 45 degrees, 7 is 90 degrees, 11 is 135 degrees, and
+        15 is 180 degrees.
+
+        Parameters:
+          - speed
+          - angle (optional)
+
+        """
+        if angle is None:
+            return self.manual_drive(6, speed)
+        else:
+            return self.manual_drive(18, speed, angle)
+
+    def forward_left(self, speed=None):
         """Move Rovio forward and left."""
         return self.manual_drive(7, speed)
 
-    def diag_forward_right(self, speed=None):
+    def forward_right(self, speed=None):
         """Move Rovio forward and right."""
         return self.manual_drive(8, speed)
 
-    def diag_back_left(self, speed=None):
+    def back_left(self, speed=None):
         """Move Rovio backward and left."""
         return self.manual_drive(9, speed)
 
-    def diag_back_right(self, speed=None):
+    def back_ight(self, speed=None):
         """Move Rovio backward and right."""
         return self.manual_drive(10, speed)
-
-    def rotate_left_20(self):
-        """Rotate Rovio left 20 degrees."""
-        return self.manual_drive(17)
-
-    def rotate_right_20(self):
-        """Rotate Rovio right 20 degrees."""
-        return self.manual_drive(18)
 
     def head_up(self):
         """Move camera head looking up."""
@@ -545,9 +635,8 @@ class Rovio:
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (1,)
-        r = self._getRequestResponse(page)
-        d = self._parseResponse(r)
-        # TODO: flags?
+        r = self._get_request_response(page)
+        d = self._parse_response(r)
         if d['responses'] == SUCCESS:
             d['raw_resolution'] = d['resolution']
             if d['raw_resolution'] == 0:
@@ -572,7 +661,7 @@ class Rovio:
                 d['ac_freq'] = 60
         return d
 
-    def StartRecording(self):
+    def start_recording(self):
         """
         Start recording a path.
 
@@ -586,9 +675,9 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(2)
+        return self._simple_rev_cmd(2)
 
-    def AbortRecording(self):
+    def abort_recording(self):
         """
         Terminate recording of path.
 
@@ -597,9 +686,9 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(3)
+        return self._simple_rev_cmd(3)
 
-    def StopRecording(self, path_name='newpath'):
+    def stop_recording(self, path_name='newpath'):
         """
         Stop recording and save path to flash memory.
 
@@ -612,9 +701,9 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(4, path_name)
+        return self._simple_rev_cmd(4, path_name)
 
-    def DeletePath(self, path_name):
+    def delete_path(self, path_name):
         """
         Delete the specified path.
 
@@ -624,16 +713,27 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(5, path_name)
+        return self._simple_rev_cmd(5, path_name)
 
-    ### TODO Continue testing here!
+    def get_path_list(self):
+        """
+        Return a list of paths stored in the Rovio.
 
-    def GetPathList(self):
-        """Return a list of paths stored in the Rovio."""
+        Return a command response code on error.
+
+        """
         page = 'rev.cgi?Cmd=nav&action=%d' % (6,)
-        return self._getRequestResponse(page)
+        r = self._get_request_response(page).strip()
+        if r.startswith('Cmd = nav\nresponses = 0'):
+            p = r[24:]
+            paths = p.split('|')
+            if paths[0] == '':
+                paths = []
+        else:
+            paths = self._parse_response(r)['responses']
+        return paths
 
-    def PlayPathForward(self, path_name):
+    def play_path_forward(self, path_name):
         """
         Replays a stored path from closest point to the end.
 
@@ -645,9 +745,9 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(7, path_name)
+        return self._simple_rev_cmd(7, path_name)
         
-    def PlayPathBackward(self, path_name):
+    def play_path_backward(self, path_name):
         """
         Replays a stored path from closest point to the beginning.
 
@@ -659,17 +759,17 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(8, path_name)
+        return self._simple_rev_cmd(8, path_name)
 
-    def StopPlaying(self):
+    def stop_playing(self):
         """Stop playing a path."""
-        return self._simpleRevCmd(9)
+        return self._simple_rev_cmd(9)
 
-    def PausePlaying(self):
+    def pause_playing(self):
         """Pause the robot and wait for a new pause or stop command."""
-        return self._simpleRevCmd(10)
+        return self._simple_rev_cmd(10)
 
-    def RenamePath(self, old_path_name, new_path_name):
+    def rename_path(self, old_path_name, new_path_name):
         """
         Rename the old path.
 
@@ -682,22 +782,22 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&name=%s&newname=%s' %
                 (11, old_path_name, new_path_name))
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)['responses']
+        r = self._get_request_response(page)
+        return self._parse_response(r)['responses']
 
-    def GoHome(self):
+    def go_home(self):
         """Drive to home location in front of charging station."""
-        return self._simpleRevCmd(12)
+        return self._simple_rev_cmd(12)
 
-    def GoHomeAndDock(self):
+    def go_home_and_dock(self):
         """Drive to home location and dock at charging station."""
-        return self._simpleRevCmd(13)
+        return self._simple_rev_cmd(13)
 
-    def UpdateHomePosition(self):
+    def update_home_position(self):
         """Define current position as home location."""
-        return self._simpleRevCmd(14)
+        return self._simple_rev_cmd(14)
 
-    def SetTuningParameters(self):
+    def set_tuning_parameters(self):
         """
         Change homing, docking, and driving parameters.
 
@@ -706,25 +806,28 @@ class Rovio:
         Return a command response code.
 
         """
-        return self._simpleRevCmd(15)
+        return self._simple_rev_cmd(15)
 
-    def GetTuningParameters(self):
+    def get_tuning_parameters(self):
         """Return home, docking, and driving parameters."""
         page = 'rev.cgi?Cmd=nav&action=%d' % (16,)
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)
+        r = self._get_request_response(page)
+        return self._parse_response(r)
 
-    def ResetNavStateMachine(self):
+    def reset_nav_state_machine(self):
         """Stops whatever it was doing and resets to idle state."""
-        return self._simpleRevCmd(17)
+        return self._simple_rev_cmd(17)
 
-    def GetMCUReport(self):
+    def get_MCU_report(self):
         """
         Return MCU report (motor controller unit?).
 
         Including wheel encoders and IR obstacle avoidance.
 
-        Return a byte sequence.
+        Return a firmware-dependent byte sequence.
+
+        WARNING: The following table is OUT OF DATE with version 5 of the
+        firmware!
 
         Offset Length Description
         -----------------------------------------------------------------------
@@ -762,44 +865,47 @@ class Rovio:
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (20,)
-        r = self._getRequestResponse(page)
-        d = self._parseResponse(r)
+        r = self._get_request_response(page)
+        d = self._parse_response(r)
         return d['responses']
 
-#     def GetMCUReport(self):
-#         """
-#         Return MCU report (motor control unit?).
-
-#         Convert the byte string returned by GetRawMCUReport into a list.
-
-#         """
-#         raw = self.GetRawMCUReport()
-#         mcu = list()
-#         n = mcu[0]
-#         return mcu
-
-    def ClearAllPaths(self):
+    def clear_all_paths(self):
         """Delete all paths in flash memory."""
-        return self._simpleRevCmd(21)
+        return self._simple_rev_cmd(21)
 
-    def GetStatus(self):
+    def get_status(self):
         """
         Report navigation state.
 
         Return a dictionary:
         {'responses': response code,
-         'state': 0 (idle)
-                  1 (driving home)
-                  2 (docking)
-                  3 (executing path)
-                  4 (recording path)}
+         'raw_state': 0 (idle)
+                      1 (driving home)
+                      2 (docking)
+                      3 (executing path)
+                      4 (recording path)
+         'state': 'idle', 'driving home', 'docking', 'executing path', or
+                  'recording path'}
 
         """
         page = 'rev.cgi?Cmd=nav&action=%d' % (22,)
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)
+        r = self._get_request_response(page)
+        d = self._parse_response(r)
+        if d['responses'] == SUCCESS:
+            d['raw_state'] = d['state']
+            if d['raw_state'] == 0:
+                d['state'] = 'idle'
+            elif d['raw_state'] == 1:
+                d['state'] = 'driving home'
+            elif d['raw_state'] == 2:
+                d['state'] = 'docking'
+            elif d['raw_state'] == 3:
+                d['state'] = 'executing path'
+            elif d['raw_state'] == 4:
+                d['state'] = 'recording path'
+        return d
 
-    def SaveParameter(self, index, value):
+    def save_parameter(self, index, value):
         """
         Stores parameter in the robot's flash.
 
@@ -813,29 +919,42 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d&value=%d' %
                 (23, index, value))
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)
+        r = self._get_request_response(page)
+        return self._parse_response(r)
 
-    def ReadParameter(self, index):
+    def read_parameter(self, index):
         """
         Read parameter from the robot's flash.
 
         Parameters:
           - index: 0--19
 
-        Return response code.
+        Return a dict with response code and parameter value.
 
         """
         page = ('rev.cgi?Cmd=nav&action=%d&index=%d' % (24,
                                                         index))
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)
+        r = self._get_request_response(page)
+        return self._parse_response(r)
 
-    def GetLibNSVersion(self):
+    def read_all_parameters(self):
+        """
+        Read all parameters from the robot's flash.
+
+        Return a dict with parameter indices and values.
+
+        """
+        page = 'rev.cgi?Cmd=nav&action=%d' % 24
+        r = self._get_request_response(page)
+        return self._parse_response(r)
+
+    def get_libNS_version(self):
         """Return string version of libNS and NS sensor."""
-        return self._simpleRevCmd(25)
+        page = 'rev.cgi?Cmd=nav&action=%d' % (25,)
+        r = self._get_request_response(page)
+        return self._parse_response(r)['version']
 
-    def EmailImage(self, email):
+    def email_image(self, email):
         """
         Emails current image or if in path recording mode sets an action.
 
@@ -845,14 +964,14 @@ class Rovio:
         """
         page = ('rev.cgi?Cmd=nav&action=%d&email=%d' % (26,
                                                         email))
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)
+        r = self._get_request_response(page)
+        return self._parse_response(r)
 
-    def ResetHomeLocation(self):
+    def reset_home_location(self):
         """Clear home location in flash memory."""
-        return self._simpleRevCmd(27)
+        return self._simple_rev_cmd(27)
 
-    def GetData(self):
+    def get_data(self):
         """
         Do nothing.
         
@@ -862,7 +981,7 @@ class Rovio:
         """
         return None
 
-    def GetImage(self, imgID = None):
+    def get_image(self, imgID = None):
         """
         Acquire an image from the Rovio webcam.
 
@@ -873,15 +992,15 @@ class Rovio:
 
         """
         if imgID is None:
-            return self._getRequestResponse('Jpeg/CamImg.jpg')
+            return self._get_request_response('Jpeg/CamImg.jpg')
         else:
-            return self._getRequestResponse('Jpeg/CamImg%d.jpg' % imgID)
+            return self._get_request_response('Jpeg/CamImg%d.jpg' % imgID)
 
-    def StreamVideo(self):
+    def stream_video(self):
         """Streaming video not yet supported."""
         return None
 
-    def ChangeResolution(self, ResType=2, RedirectURL=None):
+    def change_resolution(self, ResType=2, RedirectURL=None):
         """
         Change the resolution of the camera's images.
 
@@ -901,9 +1020,9 @@ class Rovio:
         else:
             page = ('ChangeResolution.cgi?ResType=%d&RedirectURL=%s' %
                     (ResType, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def ChangeCompressRatio(self, Ratio=1, RedirectURL=None):
+    def change_compress_ratio(self, Ratio=1, RedirectURL=None):
         """
         Change the quality setting of camera's images (MPEG only).
 
@@ -919,9 +1038,9 @@ class Rovio:
         else:
             page = ('ChangeCompressRatio.cgi?Ratio=%d&RedirectURL=%s' %
                     (Ratio, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def ChangeFramerate(self, Framerate, RedirectURL=None):
+    def change_framerate(self, Framerate=30, RedirectURL=None):
         """
         Change the frame rate of camera's images.
 
@@ -937,27 +1056,9 @@ class Rovio:
         else:
             page = ('ChangeFramerate.cgi?Framerate=%d&RedirectURL=%s' %
                     (Framerate, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def ChangeFramerate(self, Framerate=30, RedirectURL=None):
-        """
-        Change the frame rate of camera's images.
-
-        Parameters:
-          - Framerate: 2--32 frames per second (default 30)
-          - RedirectURL: undocumented (default None)
-
-        Requires administrative privileges on the Rovio.
-        
-        """
-        if RedirectURL is None:
-            page = 'ChangeFramerate.cgi?Framerate=%d' % (Framerate,)
-        else:
-            page = ('ChangeFramerate.cgi?Framerate=%d&RedirectURL=%s' %
-                    (Framerate, RedirectURL))
-        return self._getRequestResponse(page)
-        
-    def ChangeBrightness(self, Brightness=6, RedirectURL=None):
+    def change_brightness(self, Brightness=6, RedirectURL=None):
         """
         Change the brightness of camera's images.
 
@@ -973,9 +1074,9 @@ class Rovio:
         else:
             page = ('ChangeBrightness.cgi?Brightness=%d&RedirectURL=%s' %
                     (Brightness, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def ChangeSpeakerVolume(self, SpeakerVolume=15, RedirectURL=None):
+    def change_speaker_volume(self, SpeakerVolume=15, RedirectURL=None):
         """
         Change the speaker volume of the Rovio.
 
@@ -992,9 +1093,9 @@ class Rovio:
         else:
             page = ('ChangeSpeakerVolume.cgi?SpeakerVolume=%d&RedirectURL=%s' %
                     (SpeakerVolume, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def ChangeMicVolume(self, MicVolume=15, RedirectURL=None):
+    def change_mic_volume(self, MicVolume=15, RedirectURL=None):
         """
         Change the microphone volume of the Rovio.
 
@@ -1010,9 +1111,9 @@ class Rovio:
         else:
             page = ('ChangeMicVolume.cgi?MicVolume=%d&RedirectURL=%s' %
                     (MicVolume, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def SetCamera(self, Frequency=0, RedirectURL=None):
+    def set_camera(self, Frequency=0, RedirectURL=None):
         """
         Change camera sensor's settings.
 
@@ -1028,11 +1129,11 @@ class Rovio:
         else:
             page = ('SetCamera.cgi?Frequency=%d&RedirectURL=%s' %
                     (Frequency, RedirectURL))
-        return self._getRequestResponse(page)
+        return self._get_request_response(page)
         
-    def manual_drive(self, command, speed=None):
+    def manual_drive(self, command, speed=None, angle=None):
         """
-        Send a manual_drive command to the Rovio.
+        Send a movement command to the Rovio.
 
         In general, this command should not be called directly.
 
@@ -1059,14 +1160,23 @@ class Rovio:
         Return the response code (0 for success).
 
         """
-        if speed is None or speed < 1 or speed > 10:
+        if speed is None:
             speed = self.speed
-        page = ('rev.cgi?Cmd=nav&action=%d&drive=%d&speed=%d' %
-                (18, command, speed))
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)['responses']
+        # camera commands
+        if 11 <= command <= 13:
+            page = 'rev.cgi?Cmd=nav&action=%d&drive=%d' % (18, command)
+        # rotate commands
+        elif command == 17 or command == 18:
+            page = ('rev.cgi?Cmd=nav&action=%d&drive=%d&angle=%d&speed=%d' %
+                    (18, command, angle, speed))
+        # all other movement commands
+        else:
+            page = ('rev.cgi?Cmd=nav&action=%d&drive=%d&speed=%d' %
+                    (18, command, speed))
+        r = self._get_request_response(page)
+        return self._parse_response(r)['responses']
 
-    def _getRequestResponse(self, page):
+    def _get_request_response(self, page):
         """
         Send a command to the Rovio and return its response.
 
@@ -1087,7 +1197,7 @@ class Rovio:
         data = f.read()
         return data;
 
-    def _parseResponse(self, response):
+    def _parse_response(self, response):
         """
         Parse the response of some Rovio CGI commands.
 
@@ -1108,19 +1218,27 @@ class Rovio:
         rlst[0:1] = rlst[0].splitlines()
         # split key=val into key,val pairs
         for pair in rlst:
-            (key,val) = pair.split('=')
-            key = key.strip()
-            val = val.strip()
-            # try to convert to int
             try:
-                val = int(val)
+                (key,val) = pair.split('=')
             except ValueError:
-                pass
+                key = pair
+                val = None
+            key = key.strip()
+            if val is not None:
+                val = val.strip()
+            # try to convert to int
+            if key != 'flags':
+                try:
+                    val = int(val)
+                except ValueError:
+                    pass
+                except TypeError:
+                    pass
             reply[key] = val
         return reply
 
-    def _compileURLs(self):
-        """Compile all URLs for use in _getRequestResponse."""
+    def _compile_URLs(self):
+        """Compile all URLs for use in _get_request_response."""
         if self._username is not None and self._password is not None:
             self._base64string = base64.encodestring('%s:%s' %
                                                      (self._username,
@@ -1130,14 +1248,86 @@ class Rovio:
         self._base_url = '%s://%s:%d/' % (self._protocol, self._host,
                                           self._port)
 
-    def _simpleRevCmd(self, commandID, name=None):
+    def _simple_rev_cmd(self, commandID, name=None):
         """Make simple rev.cgi calls (for path ops, not manual_drive)"""
         if name is None:
             page = 'rev.cgi?Cmd=nav&action=%d' % (commandID,)
         else:
             page = 'rev.cgi?Cmd=nav&action=%d&name=%s' % (commandID, name)
-        r = self._getRequestResponse(page)
-        return self._parseResponse(r)['responses']
+        r = self._get_request_response(page)
+        return self._parse_response(r)['responses']
+
+class RovioController(threading.Thread):
+
+    """
+    Controls the Rovio robot.
+
+    A higher-level wrapper for the API.
+
+    Attributes:
+      - rovio: the Rovio being controlled (read-only)
+      - wait: the amount of time to sleep before checking the Rovio event queue
+
+    """
+
+    def getRovio(self): return self._rovio
+    rovio = property(getRovio, doc="""Rovio being controlled (read-only)""")
+
+    def __init__(self, rovio):
+        """
+        Initialize a RovioController.
+
+        Parameters:
+          - rovio: rovio object to be controlled
+
+        """
+        threading.Thread.__init__(self)
+        self._rovio = rovio
+        self._running = True
+        self._queue = []
+        self.wait = 0.1
+
+    def enqueue(self, millis, command, params=[]):
+        self._queue.append([None, millis, command, params])
+
+    def enqueue_all(self, commands):
+        self._queue.extend(commands)
+
+    def interrupt(self, millis, command, params=[]):
+        self._queue = [[None, millis, command, params]]
+
+    def clear(self):
+        self._queue = []
+
+    def _dispatch(self):
+        if len(self._queue) > 0:
+            cmd = self._queue[0][2]
+            parms = self._queue[0][3]
+            if isinstance(parms, list):
+                cmd(*parms)
+            elif isinstance(parms, dict):
+                cmd(**parms)
+
+    def stop(self):
+        self._running = False
+
+    def run(self):
+        while self._running:
+            if len(self._queue) > 0:
+                if self._queue[0][0] is None:
+                    # start executing
+                    self._queue[0][0] = time.time()
+                    self._dispatch()
+                else:
+                    # continue executing, check for time
+                    now = time.time()
+                    elapsed = (now - self._queue[0][0]) * 1000
+                    millis = self._queue[0][1]
+                    if elapsed > millis:
+                        self._queue = self._queue[1:]
+                    else:
+                        self._dispatch()
+            time.sleep(self.wait)
 
 #######################
 # TESTING AND SCRIPTS #
