@@ -536,7 +536,7 @@ class Rovio:
         """Move Rovio backward and left."""
         return self.manual_drive(9, speed)
 
-    def back_ight(self, speed=None):
+    def back_right(self, speed=None):
         """Move Rovio backward and right."""
         return self.manual_drive(10, speed)
 
@@ -1303,7 +1303,7 @@ class RovioController(threading.Thread):
         if len(self._queue) > 0:
             cmd = self._queue[0][2]
             parms = self._queue[0][3]
-            if isinstance(parms, list):
+            if isinstance(parms, list) or isinstance(parms, tuple):
                 cmd(*parms)
             elif isinstance(parms, dict):
                 cmd(**parms)
